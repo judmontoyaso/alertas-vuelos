@@ -1,0 +1,346 @@
+@import "tailwindcss";
+
+/* Señalética de aeropuerto: amarillo de panel, tinta azul noche, cielo pálido. */
+:root {
+  --sky: #e4ecf4;
+  --paper: #ffffff;
+  --ink: #10213a;
+  --muted: #56667e;
+  --line: #c5d2e0;
+  --sign: #ffc61a;
+  --drop: #0b7a4f;
+  --drop-bg: #dcf3e8;
+  --warn: #a8231c;
+}
+
+@theme inline {
+  --font-sans: var(--font-barlow);
+  --font-display: var(--font-barlow-condensed);
+}
+
+body {
+  background: var(--sky);
+  color: var(--ink);
+  font-family: var(--font-barlow), system-ui, sans-serif;
+  font-size: 1.0625rem;
+  line-height: 1.5;
+}
+
+:focus-visible {
+  outline: 3px solid var(--ink);
+  outline-offset: 2px;
+}
+
+/* Panel superior, como un letrero de terminal */
+.sign {
+  background: var(--sign);
+  border-bottom: 4px solid var(--ink);
+}
+.sign-inner {
+  max-width: 68rem;
+  margin: 0 auto;
+  padding: 1.75rem 1.25rem 1.5rem;
+  display: flex;
+  align-items: flex-end;
+  gap: 1.25rem;
+}
+.sign-icon {
+  flex: none;
+  width: 4.25rem;
+  height: 4.25rem;
+  background: var(--ink);
+  color: var(--sign);
+  border-radius: 0.5rem;
+  display: grid;
+  place-items: center;
+}
+.sign h1 {
+  font-family: var(--font-barlow-condensed), sans-serif;
+  font-weight: 700;
+  font-size: clamp(2.25rem, 6vw, 3.75rem);
+  line-height: 0.95;
+  letter-spacing: -0.01em;
+}
+.sign p {
+  margin-top: 0.4rem;
+  max-width: 34rem;
+  font-weight: 500;
+}
+
+.layout {
+  max-width: 68rem;
+  margin: 0 auto;
+  padding: 2rem 1.25rem 4rem;
+  display: grid;
+  gap: 2rem;
+}
+@media (min-width: 60rem) {
+  .layout {
+    grid-template-columns: 22rem 1fr;
+    align-items: start;
+  }
+  .form-panel {
+    position: sticky;
+    top: 1.5rem;
+  }
+}
+
+h2 {
+  font-family: var(--font-barlow-condensed), sans-serif;
+  font-weight: 600;
+  font-size: 1.75rem;
+  line-height: 1.1;
+  margin-bottom: 1rem;
+}
+
+.panel {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  padding: 1.5rem;
+}
+
+/* Formulario */
+.fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem 0.75rem;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+.field.wide {
+  grid-column: 1 / -1;
+}
+.field label {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.field small {
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.35;
+}
+.field input,
+.field select {
+  width: 100%;
+  height: 2.75rem;
+  padding: 0 0.75rem;
+  border: 1.5px solid var(--line);
+  border-radius: 0.4rem;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+}
+.field input:hover,
+.field select:hover {
+  border-color: var(--muted);
+}
+.field input.iata {
+  font-family: var(--font-barlow-condensed), sans-serif;
+  font-weight: 600;
+  font-size: 1.6rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.field input.iata::placeholder {
+  color: var(--line);
+}
+
+.btn {
+  height: 2.75rem;
+  padding: 0 1.1rem;
+  border-radius: 0.4rem;
+  font-weight: 600;
+  border: 1.5px solid var(--ink);
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+}
+.btn:hover:not(:disabled) {
+  background: var(--sky);
+}
+.btn.primary {
+  background: var(--ink);
+  color: #fff;
+}
+.btn.primary:hover:not(:disabled) {
+  background: #1c3558;
+}
+.btn.quiet {
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  padding: 0 0.6rem;
+}
+.btn.quiet:hover:not(:disabled) {
+  color: var(--ink);
+  background: var(--sky);
+}
+.btn.quiet.danger:hover:not(:disabled) {
+  color: var(--warn);
+}
+.btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.notice {
+  border-left: 4px solid var(--ink);
+  background: var(--paper);
+  padding: 0.75rem 1rem;
+  border-radius: 0 0.4rem 0.4rem 0;
+  font-size: 0.95rem;
+}
+.notice.error {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+.notice + .notice,
+.notice + .alerts,
+.alerts + .notice {
+  margin-top: 0.75rem;
+}
+
+/* Alerta: una fila de tablero de salidas */
+.alerts {
+  display: grid;
+  gap: 0.75rem;
+  list-style: none;
+  padding: 0;
+}
+.alert {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+.alert.hit {
+  border-color: var(--drop);
+  box-shadow: inset 6px 0 0 var(--drop);
+}
+.alert.paused {
+  opacity: 0.7;
+}
+.alert-main {
+  display: grid;
+  gap: 1rem 1.5rem;
+  padding: 1.25rem 1.5rem;
+}
+@media (min-width: 40rem) {
+  .alert-main {
+    grid-template-columns: 1fr auto;
+    align-items: center;
+  }
+  .prices {
+    text-align: right;
+  }
+}
+.route {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-family: var(--font-barlow-condensed), sans-serif;
+  font-weight: 700;
+  font-size: 2.75rem;
+  line-height: 1;
+  letter-spacing: 0.02em;
+}
+.route-line {
+  flex: 0 1 5rem;
+  min-width: 1.5rem;
+  height: 0;
+  border-top: 2px dashed var(--line);
+}
+.route svg {
+  flex: none;
+  color: var(--muted);
+}
+.dates {
+  margin-top: 0.4rem;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+.now {
+  font-family: var(--font-barlow-condensed), sans-serif;
+  font-weight: 600;
+  font-size: 2rem;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.now.empty {
+  font-size: 1.25rem;
+  color: var(--muted);
+  font-weight: 500;
+}
+.target {
+  margin-top: 0.3rem;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+.verdict {
+  display: inline-block;
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.verdict.hit {
+  background: var(--drop-bg);
+  color: var(--drop);
+  padding: 0.15rem 0.55rem;
+  border-radius: 0.3rem;
+}
+.alert-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.25rem 1rem;
+  padding: 0.4rem 0.9rem 0.4rem 1.5rem;
+  border-top: 1px solid var(--line);
+  background: #f6f9fc;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+.alert-foot .btn {
+  height: 2.25rem;
+  font-size: 0.9rem;
+}
+.alert-foot a {
+  color: var(--ink);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.5rem;
+}
+
+.empty-state {
+  border: 2px dashed var(--line);
+  border-radius: 0.75rem;
+  padding: 2.5rem 1.5rem;
+  color: var(--muted);
+}
+.empty-state strong {
+  display: block;
+  color: var(--ink);
+  font-size: 1.15rem;
+  margin-bottom: 0.25rem;
+}
+
+.gate {
+  max-width: 26rem;
+  margin: 3rem auto;
+  padding: 0 1.25rem;
+}
+.gate form {
+  display: grid;
+  gap: 1rem;
+}
