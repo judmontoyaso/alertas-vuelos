@@ -1,7 +1,7 @@
 "use client";
 
 import { googleFlightsUrl } from "@/lib/flights";
-import { cityOf, describeAlert, formatDate } from "@/lib/format";
+import { cityOf, describeAlert, describeOption, formatDate } from "@/lib/format";
 import { formatPrice, tripDurations, type Alert } from "@/lib/types";
 
 const PLANE = "M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z";
@@ -20,13 +20,15 @@ type Props = {
   busy: boolean;
   canCheck: boolean;
   onCheck: () => void;
+  onEdit: () => void;
   onToggle: () => void;
   onDelete: () => void;
 };
 
-export default function AlertCard({ alert, busy, canCheck, onCheck, onToggle, onDelete }: Props) {
+export default function AlertCard({ alert, busy, canCheck, onCheck, onEdit, onToggle, onDelete }: Props) {
   const threshold = alert.target_price ?? alert.typical_low;
   const hit = alert.last_price !== null && threshold !== null && alert.last_price <= threshold;
+  const options = alert.options ?? [];
   const pendingDurations =
     alert.mode === "dates" && alert.round_trip
       ? tripDurations(alert).filter((d) => !alert.grid?.[d]).length
@@ -96,6 +98,25 @@ export default function AlertCard({ alert, busy, canCheck, onCheck, onToggle, on
           )}
         </div>
       </div>
+      {options.length > 1 && (
+        <div className="options">
+          <h3>Opciones encontradas</h3>
+          <ol>
+            {options.map((o, i) => (
+              <li key={`${o.out}-${o.ret}-${o.airline}-${i}`}>
+                <a
+                  href={googleFlightsUrl(alert.origin, alert.destination, o.out, o.ret, alert.currency)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <strong>{formatPrice(o.price, alert.currency)}</strong>
+                  <span>{describeOption(o)}</span>
+                </a>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
       {alert.last_error && <p className="alert-note">{alert.last_error}</p>}
       {!alert.last_error && alert.last_checked_at && pendingDurations > 0 && (
         <p className="alert-note">
@@ -117,6 +138,9 @@ export default function AlertCard({ alert, busy, canCheck, onCheck, onToggle, on
         <span className="actions">
           <button className="btn quiet" disabled={busy || !canCheck} onClick={onCheck}>
             {busy ? "Consultando…" : "Consultar precio ahora"}
+          </button>
+          <button className="btn quiet" disabled={busy} onClick={onEdit}>
+            Editar
           </button>
           <button className="btn quiet" disabled={busy} onClick={onToggle}>
             {alert.active ? "Pausar" : "Reanudar"}

@@ -4,9 +4,12 @@ import {
   addDays,
   CURRENCIES,
   daysBetween,
+  MAX_OPTIONS,
   todayIso,
   tripDurations,
+  type Alert,
   type Currency,
+  type FlightOption,
   type GridCell,
   type Quote,
   type Search,
@@ -16,6 +19,8 @@ import {
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_RANGE_DAYS = 31;
 const MAX_DURATIONS = 30;
+const ALTERNATIVES_PER_DURATION = 2;
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export type Best = {
   price: number | null;
@@ -23,12 +28,17 @@ export type Best = {
   return: string | null;
   airline: string | null;
   grid: Record<string, GridCell>;
+  options: FlightOption[];
 };
 
 const maxDate = (a: string, b: string) => (a > b ? a : b);
 const minDate = (a: string, b: string) => (a < b ? a : b);
 
-export function validateSearch(body: Record<string, unknown>): { search: Search } | { error: string } {
+// `earliest` permite conservar, al editar, un rango de ida que empezo antes de hoy.
+export function validateSearch(
+  body: Record<string, unknown>,
+  earliest: string | null = null,
+): { search: Search } | { error: string } {
   const mode = body.mode === "deal" ? "deal" : "dates";
   const origin = String(body.origin ?? "").toUpperCase();
   const destination = String(body.destination ?? "").toUpperCase();
@@ -62,9 +72,11 @@ export function validateSearch(body: Record<string, unknown>): { search: Search 
   const out_to = date(body.out_to) ?? out_from;
   const ret_from = round_trip ? date(body.ret_from) : null;
   const ret_to = round_trip ? (date(body.ret_to) ?? ret_from) : null;
-  if (!out_from || !out_to || out_from < today || out_to < out_from) {
+  const minStart = earliest && earliest < today ? earliest : today;
+  if (!out_from || !out_to || out_from < minStart || out_to < out_from) {
     return { error: "El rango de ida debe empezar hoy o después, y terminar después de empezar." };
   }
+  if (out_to < today) return { error: "El rango de ida ya pasó; elige fechas desde hoy." };
   if (daysBetween(out_from, out_to) > MAX_RANGE_DAYS) {
     return { error: `El rango de ida no puede pasar de ${MAX_RANGE_DAYS} días.` };
   }
@@ -91,6 +103,35 @@ export function validateSearch(body: Record<string, unknown>): { search: Search 
   return { search };
 }
 
+export type Delivery = Pick<Alert, "target_price" | "email" | "telegram_chat_id">;
+
+// Precio tope y canales de aviso; los comparten crear y editar.
+export function validateDelivery(body: Record<string, unknown>): { delivery: Delivery } | { error: string } {
+  // Sin precio tope la alerta es automatica: avisa cuando el precio baja del rango habitual.
+  const hasTarget = body.target_price !== undefined && body.target_price !== null && body.target_price !== "";
+  const target_price = hasTarget ? Number(body.target_price) : null;
+  const email = String(body.email ?? "").trim() || null;
+  const telegram_chat_id = String(body.telegram_chat_id ?? "").trim() || null;
+
+  if (target_price !== null && (!Number.isFinite(target_price) || target_price <= 0)) {
+    return { error: "El precio tope debe ser mayor que cero." };
+  }
+  if (!email && !telegram_chat_id) return { error: "Indica un correo o un chat de Telegram para avisarte." };
+  if (email && !EMAIL.test(email)) return { error: "El correo no es válido." };
+  if (telegram_chat_id && !/^-?\d+$/.test(telegram_chat_id)) {
+    return { error: "El chat ID de Telegram es un número." };
+  }
+  return { delivery: { target_price, email, telegram_chat_id } };
+}
+
+// Rango habitual que el formulario ya consulto, para no repetir la busqueda.
+export function typicalFields(body: Record<string, unknown>) {
+  const typical: number[] = Array.isArray(body.typical) ? body.typical.map(Number) : [];
+  return typical.length === 2 && typical.every((n) => Number.isFinite(n) && n > 0)
+    ? { typical_low: typical[0], typical_high: typical[1], insights_at: new Date().toISOString() }
+    : null;
+}
+
 // Busca el mejor precio gastando como mucho `maxCalls` busquedas. En ida y vuelta por rangos
 // cada duracion de viaje es una busqueda; `grid` recuerda las ya consultadas y se van rotando.
 export async function findBest(
@@ -110,9 +151,18 @@ export async function findBest(
   const now = new Date().toISOString();
 
   if (!s.round_trip) {
-    const days = await getCalendar({ ...route, start, end: s.out_to! });
-    const best = days.sort((a, b) => a.price - b.price)[0];
-    return { price: best?.price ?? null, outbound: best?.outbound ?? null, return: null, airline: null, grid: {} };
+    const days = (await getCalendar({ ...route, start, end: s.out_to! }))
+      .filter((p) => p.outbound >= start && p.outbound <= s.out_to!)
+      .sort((a, b) => a.price - b.price);
+    const best = days[0];
+    return {
+      price: best?.price ?? null,
+      outbound: best?.outbound ?? null,
+      return: null,
+      airline: null,
+      grid: {},
+      options: days.slice(0, MAX_OPTIONS).map((p) => ({ price: p.price, out: p.outbound, ret: null })),
+    };
   }
 
   const durations = tripDurations(s);
@@ -137,23 +187,33 @@ export async function findBest(
     }
     calls++;
     const days = await getCalendar({ ...route, start: from, end: to, days: d });
-    const best = days
+    const [best, ...rest] = days
       .filter((p) => p.outbound >= from && p.outbound <= to)
-      .sort((a, b) => a.price - b.price)[0];
+      .sort((a, b) => a.price - b.price)
+      .map((p) => ({ price: p.price, out: p.outbound, ret: p.return ?? addDays(p.outbound, d) }));
     grid[d] = best
-      ? { price: best.price, out: best.outbound, ret: best.return ?? addDays(best.outbound, d), at: now }
+      ? { ...best, at: now, alt: rest.slice(0, ALTERNATIVES_PER_DURATION) }
       : { price: null, at: now };
   }
 
-  const best = Object.values(grid)
-    .filter((c): c is GridCell & { price: number; out: string } => c.price !== null && !!c.out && c.out >= today)
-    .sort((a, b) => a.price - b.price)[0];
+  // Las opciones salen de todas las duraciones ya consultadas, no solo de las de hoy.
+  const options: FlightOption[] = Object.values(grid)
+    .flatMap((c) =>
+      c.price !== null && c.out
+        ? [{ price: c.price, out: c.out, ret: c.ret ?? null }, ...(c.alt ?? [])]
+        : [],
+    )
+    .filter((o) => o.out >= today)
+    .sort((a, b) => a.price - b.price || a.out.localeCompare(b.out))
+    .slice(0, MAX_OPTIONS);
+  const best = options[0];
   return {
     price: best?.price ?? null,
     outbound: best?.out ?? null,
     return: best?.ret ?? null,
     airline: null,
     grid,
+    options,
   };
 }
 
@@ -169,7 +229,7 @@ const roundDown = (value: number, currency: Currency) =>
 // Vista previa para el formulario: precio de hoy y topes sugeridos segun el historial de Google.
 export async function getQuote(s: Search): Promise<Quote> {
   const best = await findBest(s, {}, 1);
-  const empty = { typical: null, level: null, history_days: 0, suggestions: [] };
+  const empty = { options: [], typical: null, level: null, history_days: 0, suggestions: [] };
   if (best.price === null || !best.outbound) {
     return { price: null, outbound: null, return: null, airline: best.airline, ...empty, message: noPriceMessage(best) };
   }
@@ -207,6 +267,7 @@ export async function getQuote(s: Search): Promise<Quote> {
     outbound: best.outbound,
     return: best.return,
     airline: best.airline,
+    options: best.options,
     typical: insights.typical,
     level: insights.level,
     history_days,

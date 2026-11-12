@@ -31,6 +31,7 @@ create table if not exists vuelo.flight_alerts (
   best_return date,
   best_airline text,
   grid jsonb not null default '{}',
+  options jsonb not null default '[]',      -- opciones mas baratas de la ultima revision
   last_checked_at timestamptz,
   last_error text,
   last_notified_price numeric,
@@ -39,6 +40,9 @@ create table if not exists vuelo.flight_alerts (
   check (email is not null or telegram_chat_id is not null),
   check (mode = 'deal' or (out_from is not null and out_to is not null))
 );
+
+-- Para bases creadas antes de que existiera la columna.
+alter table vuelo.flight_alerts add column if not exists options jsonb not null default '[]';
 
 create table if not exists vuelo.price_history (
   id bigint generated always as identity primary key,

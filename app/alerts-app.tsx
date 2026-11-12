@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import type { Place } from "@/lib/airports";
-import { formatDate, monthName } from "@/lib/format";
+import { describeOption, formatDate, monthName } from "@/lib/format";
 import {
   addDays,
   CURRENCIES,
@@ -67,6 +67,8 @@ export default function AlertsApp() {
   const [quote, setQuote] = useState<{ key: string; data: Quote } | null>(null);
   const [created, setCreated] = useState("");
   const [formKey, setFormKey] = useState(0); // reinicia los buscadores de aeropuerto
+  const [editing, setEditing] = useState<Alert | null>(null);
+  const formRef = useRef<HTMLElement>(null);
 
   const search = {
     mode,
@@ -155,14 +157,48 @@ export default function AlertsApp() {
     setQuote({ key: searchKey, data: data.quote });
   }
 
+  function resetForm() {
+    setEditing(null);
+    setOrigin(null);
+    setDestination(null);
+    setTarget("");
+    setQuote(null);
+    setFormError("");
+    setFormKey((k) => k + 1);
+  }
+
+  // Carga la alerta en el formulario para editarla.
+  function startEdit(alert: Alert) {
+    setEditing(alert);
+    setMode(alert.mode);
+    setOrigin({ codes: alert.origin, label: alert.origin_label, detail: "" });
+    setDestination({ codes: alert.destination, label: alert.destination_label, detail: "" });
+    setRoundTrip(alert.round_trip);
+    setOutFrom(alert.out_from ?? "");
+    setOutTo(alert.out_to ?? "");
+    setRetFrom(alert.ret_from ?? "");
+    setRetTo(alert.ret_to ?? "");
+    setMonth(alert.month);
+    setTripLength(alert.trip_length);
+    setCurrency(alert.currency);
+    setTarget(alert.target_price === null ? "" : String(alert.target_price));
+    setEmail(alert.email ?? "");
+    setTelegram(alert.telegram_chat_id ?? "");
+    setQuote(null);
+    setFormError("");
+    setCreated("");
+    setFormKey((k) => k + 1);
+    formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   async function createAlert(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (missingPlace()) return;
     setSaving(true);
     setFormError("");
     setCreated("");
-    const { res, data } = await api("/api/alerts", {
-      method: "POST",
+    const { res, data } = await api(editing ? `/api/alerts/${editing.id}` : "/api/alerts", {
+      method: editing ? "PATCH" : "POST",
       body: JSON.stringify({
         ...search,
         target_price: target,
@@ -176,17 +212,18 @@ export default function AlertsApp() {
       setFormError(data.error ?? "No se pudo guardar la alerta.");
       return;
     }
-    setAlerts((list) => [data.alert, ...list]);
-    setCreated(
-      data.confirmation_sent
-        ? `Alerta creada. Enviamos la confirmación a ${data.alert.email ?? "tu Telegram"}.`
-        : "Alerta creada, pero no se pudo enviar la confirmación.",
-    );
-    setOrigin(null);
-    setDestination(null);
-    setTarget("");
-    setQuote(null);
-    setFormKey((k) => k + 1);
+    if (editing) {
+      setAlerts((list) => list.map((a) => (a.id === data.alert.id ? data.alert : a)));
+      setCreated("Cambios guardados.");
+    } else {
+      setAlerts((list) => [data.alert, ...list]);
+      setCreated(
+        data.confirmation_sent
+          ? `Alerta creada. Enviamos la confirmación a ${data.alert.email ?? "tu Telegram"}.`
+          : "Alerta creada, pero no se pudo enviar la confirmación.",
+      );
+    }
+    resetForm();
   }
 
   async function act(alert: Alert, init: RequestInit) {
@@ -199,6 +236,7 @@ export default function AlertsApp() {
       return;
     }
     if (init.method === "DELETE") {
+      if (editing?.id === alert.id) resetForm();
       setAlerts((list) => list.filter((a) => a.id !== alert.id));
       return;
     }
@@ -254,12 +292,14 @@ export default function AlertsApp() {
   }
 
   const today = todayIso();
+  // Al editar se respeta un rango de ida que ya habia empezado.
+  const minOut = editing?.out_from && editing.out_from < today ? editing.out_from : today;
   const active = alerts.filter((a) => a.active).length;
 
   return (
     <main className="layout">
-      <section className="panel form-panel" aria-labelledby="new-alert">
-        <h2 id="new-alert">Vigilar una ruta</h2>
+      <section className="panel form-panel" aria-labelledby="new-alert" ref={formRef}>
+        <h2 id="new-alert">{editing ? "Editar alerta" : "Vigilar una ruta"}</h2>
         <form onSubmit={createAlert}>
           <div className="modes" role="radiogroup" aria-label="Tipo de alerta">
             {(
@@ -317,7 +357,7 @@ export default function AlertsApp() {
                   <input
                     type="date"
                     aria-label="Ida, desde"
-                    min={today}
+                    min={minOut}
                     value={outFrom}
                     onChange={(e) => setOutFrom(e.target.value)}
                     required
@@ -326,7 +366,7 @@ export default function AlertsApp() {
                   <input
                     type="date"
                     aria-label="Ida, hasta"
-                    min={outFrom || today}
+                    min={outFrom || minOut}
                     max={outFrom ? addDays(outFrom, 31) : undefined}
                     value={outTo}
                     onChange={(e) => setOutTo(e.target.value)}
@@ -338,7 +378,7 @@ export default function AlertsApp() {
                     <input
                       type="date"
                       aria-label="Regreso, desde"
-                      min={outFrom || today}
+                      min={outFrom || minOut}
                       value={retFrom}
                       onChange={(e) => setRetFrom(e.target.value)}
                       required
@@ -447,6 +487,15 @@ export default function AlertsApp() {
                         {shownQuote.level === "high" && ", así que hoy está caro"}.
                       </p>
                     )}
+                    {shownQuote.options.length > 1 && (
+                      <ul>
+                        {shownQuote.options.slice(1).map((o, i) => (
+                          <li key={i}>
+                            {formatPrice(o.price, currency)}, {describeOption(o)}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                     <ul className="chips">
                       {shownQuote.suggestions.map((s) => (
                         <li key={s.value}>
@@ -511,8 +560,19 @@ export default function AlertsApp() {
             style={{ marginTop: "1.25rem", width: "100%" }}
             disabled={saving}
           >
-            {saving ? "Guardando…" : "Crear alerta"}
+            {saving ? "Guardando…" : editing ? "Guardar cambios" : "Crear alerta"}
           </button>
+          {editing && (
+            <button
+              type="button"
+              className="btn"
+              style={{ marginTop: "0.5rem", width: "100%" }}
+              disabled={saving}
+              onClick={resetForm}
+            >
+              Cancelar
+            </button>
+          )}
           <p className="cost">
             {durations > CHECKS_PER_DAY
               ? `Tus rangos dan ${durations} duraciones de viaje distintas. Se revisan ${CHECKS_PER_DAY} por día, rotando, para cuidar las búsquedas de SerpApi.`
@@ -554,6 +614,7 @@ export default function AlertsApp() {
                 busy={busyId === alert.id}
                 canCheck={Boolean(config?.flights)}
                 onCheck={() => act(alert, { method: "POST" })}
+                onEdit={() => startEdit(alert)}
                 onToggle={() =>
                   act(alert, { method: "PATCH", body: JSON.stringify({ active: !alert.active }) })
                 }

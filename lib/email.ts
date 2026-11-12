@@ -1,6 +1,6 @@
 import { googleFlightsUrl } from "./flights";
-import { cityOf, describeAlert, formatDate } from "./format";
-import { formatPrice, type Alert } from "./types";
+import { cityOf, describeAlert, describeOption, formatDate } from "./format";
+import { formatPrice, type Alert, type FlightOption } from "./types";
 
 // Plantillas de correo. HTML con tablas y estilos en linea, que es lo que entienden
 // Gmail y Outlook; misma señaletica que el panel: amarillo de letrero y tinta azul noche.
@@ -12,6 +12,7 @@ export type Found = {
   return: string | null;
   airline: string | null;
   threshold: number;
+  options?: FlightOption[];
 };
 
 const INK = "#10213a";
@@ -189,6 +190,9 @@ export function priceEmail(alert: Alert, found: Found): Email {
       ["Salida", formatDate(found.outbound)],
       ...(found.return ? ([["Regreso", formatDate(found.return)]] as [string, string][]) : []),
       ...(found.airline ? ([["Aerolínea", found.airline]] as [string, string][]) : []),
+      ...(found.options ?? []).slice(1).map(
+        (o, i): [string, string] => [`Opción ${i + 2}`, `${formatPrice(o.price, alert.currency)}, ${describeOption(o)}`],
+      ),
       ["Tu búsqueda", describeAlert(alert)],
     ],
     cta: {

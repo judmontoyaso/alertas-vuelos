@@ -84,6 +84,7 @@ export async function checkAlert(alert: Alert): Promise<CheckResult> {
     best_return: best.return,
     best_airline: best.airline,
     grid: best.grid,
+    options: best.options,
     typical_low,
     typical_high,
     insights_at,

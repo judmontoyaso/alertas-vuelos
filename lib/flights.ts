@@ -1,4 +1,4 @@
-import type { Currency } from "./types";
+import { MAX_OPTIONS, type Currency, type FlightOption } from "./types";
 
 // Cada funcion de este archivo gasta una busqueda de SerpApi.
 
@@ -16,6 +16,7 @@ export type Deal = {
   outbound: string | null;
   return: string | null;
   airline: string | null;
+  options: FlightOption[];
 };
 
 export function googleFlightsUrl(
@@ -81,14 +82,26 @@ export async function getDeal(
     month: String(route.month),
     travel_duration: String(route.trip_length),
   });
-  const flights: { price?: number; airline?: string }[] = data?.flights ?? [];
+  const flights: { price?: number; airline?: string; number_of_stops?: number }[] = data?.flights ?? [];
   const priced = flights
     .filter((f) => typeof f.price === "number")
     .sort((a, b) => a.price! - b.price!);
+  const outbound: string | null = data?.start_date ?? null;
+  const ret: string | null = route.round_trip ? (data?.end_date ?? null) : null;
   return {
     price: priced[0]?.price ?? null,
-    outbound: data?.start_date ?? null,
-    return: route.round_trip ? (data?.end_date ?? null) : null,
+    outbound,
+    return: ret,
+    // Explorar da una sola pareja de fechas; las opciones son las aerolineas que vuelan esos dias.
+    options: outbound
+      ? priced.slice(0, MAX_OPTIONS).map((f) => ({
+          price: f.price!,
+          out: outbound,
+          ret,
+          airline: f.airline ?? null,
+          stops: typeof f.number_of_stops === "number" ? f.number_of_stops : null,
+        }))
+      : [],
     // Si hay vuelos pero ninguno con precio, la aerolinea ayuda a explicar por que.
     airline: (priced[0] ?? flights[0])?.airline ?? null,
   };

@@ -1,4 +1,4 @@
-import { TRIP_LENGTHS, type Alert } from "./types";
+import { TRIP_LENGTHS, type Alert, type FlightOption } from "./types";
 
 // Textos compartidos por las tarjetas del panel y los correos.
 
@@ -16,6 +16,18 @@ function formatRange(from: string, to: string) {
 
 export function monthName(month: number) {
   return new Date(2000, month - 1, 1).toLocaleDateString("es-CO", { month: "long" });
+}
+
+// "sale el 3 dic 2026, regresa el 10 dic 2026, Avianca, directo"
+export function describeOption(o: FlightOption) {
+  return [
+    `sale el ${formatDate(o.out)}`,
+    o.ret && `regresa el ${formatDate(o.ret)}`,
+    o.airline,
+    typeof o.stops === "number" && (o.stops === 0 ? "directo" : o.stops === 1 ? "1 escala" : `${o.stops} escalas`),
+  ]
+    .filter(Boolean)
+    .join(", ");
 }
 
 export const cityOf = (label: string) => label.split(" (")[0];

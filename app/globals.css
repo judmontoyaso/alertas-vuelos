@@ -503,6 +503,43 @@ fieldset.range input {
 .cities + .dates {
   margin-top: 0.1rem;
 }
+/* Opciones encontradas en la ultima revision */
+.options {
+  margin: 0 1.5rem 1rem;
+}
+.options h3 {
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+}
+.options ol {
+  list-style: none;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+}
+.options li + li {
+  border-top: 1px solid var(--line);
+}
+.options a {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.1rem 0.75rem;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.95rem;
+}
+.options a:hover {
+  background: var(--sky);
+}
+.options strong {
+  min-width: 7rem;
+  font-variant-numeric: tabular-nums;
+}
+.options span {
+  color: var(--muted);
+}
+
 .alert-note {
   margin: 0 1.5rem 1rem;
   padding: 0.6rem 0.85rem;

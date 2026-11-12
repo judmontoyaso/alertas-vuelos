@@ -6,7 +6,25 @@ export type Mode = "dates" | "deal";
 
 export const TRIP_LENGTHS = { 1: "Fin de semana", 2: "1 semana", 3: "2 semanas" } as const;
 
-export type GridCell = { price: number | null; out?: string; ret?: string; at: string };
+// Un vuelo concreto encontrado: fechas, precio y, cuando Google lo dice, aerolinea y escalas.
+export type FlightOption = {
+  price: number;
+  out: string;
+  ret: string | null;
+  airline?: string | null;
+  stops?: number | null;
+};
+
+export const MAX_OPTIONS = 5;
+
+// `alt` guarda las siguientes fechas mas baratas de esa duracion, para ofrecer alternativas.
+export type GridCell = {
+  price: number | null;
+  out?: string;
+  ret?: string;
+  at: string;
+  alt?: { price: number; out: string; ret: string }[];
+};
 
 export type Alert = {
   id: string;
@@ -35,6 +53,7 @@ export type Alert = {
   best_return: string | null;
   best_airline: string | null;
   grid: Record<string, GridCell>; // precio por duracion del viaje en dias
+  options: FlightOption[]; // las opciones mas baratas de la ultima revision, de menor a mayor precio
   last_checked_at: string | null;
   last_error: string | null;
   last_notified_price: number | null;
@@ -72,6 +91,7 @@ export type Quote = {
   outbound: string | null;
   return: string | null;
   airline: string | null;
+  options: FlightOption[];
   typical: [number, number] | null;
   level: string | null;
   history_days: number;
