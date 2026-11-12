@@ -6,17 +6,26 @@ export const channels = {
   telegram: () => Boolean(process.env.TELEGRAM_BOT_TOKEN),
 };
 
-function message(alert: Alert, price: number) {
-  const trip = alert.return_date
-    ? `ida ${alert.outbound_date}, vuelta ${alert.return_date}`
-    : `solo ida ${alert.outbound_date}`;
+type Found = { price: number; outbound: string; return: string | null; airline: string | null; threshold: number };
+
+function message(alert: Alert, found: Found) {
+  const price = formatPrice(found.price, alert.currency);
+  const trip = found.return
+    ? `saliendo el ${found.outbound} y regresando el ${found.return}`
+    : `solo ida, saliendo el ${found.outbound}`;
+  const reference =
+    alert.target_price !== null
+      ? `Tu tope era ${formatPrice(found.threshold, alert.currency)}.`
+      : `Está por debajo de lo habitual para esta ruta (${formatPrice(found.threshold, alert.currency)}).`;
   return {
-    subject: `${alert.origin} a ${alert.destination} bajó a ${formatPrice(price, alert.currency)}`,
+    subject: `${alert.origin_label} a ${alert.destination_label} por ${price}`,
     text: [
-      `El vuelo ${alert.origin} a ${alert.destination} (${trip}) está en ${formatPrice(price, alert.currency)}.`,
-      `Tu tope era ${formatPrice(alert.target_price, alert.currency)}.`,
+      `${alert.origin_label} a ${alert.destination_label} está en ${price}, ${trip}${
+        found.airline ? ` con ${found.airline}` : ""
+      }.`,
+      reference,
       "",
-      `Ver en Google Flights: ${googleFlightsUrl(alert)}`,
+      `Ver en Google Flights: ${googleFlightsUrl(alert.origin, alert.destination, found.outbound, found.return, alert.currency)}`,
     ].join("\n"),
   };
 }
@@ -51,8 +60,8 @@ async function sendTelegram(chatId: string, text: string) {
 }
 
 // Envia por cada canal configurado; devuelve true si al menos uno salio.
-export async function sendNotification(alert: Alert, price: number): Promise<boolean> {
-  const { subject, text } = message(alert, price);
+export async function sendNotification(alert: Alert, found: Found): Promise<boolean> {
+  const { subject, text } = message(alert, found);
   const jobs: Promise<void>[] = [];
   if (alert.email && channels.email()) jobs.push(sendEmail(alert.email, subject, text));
   if (alert.telegram_chat_id && channels.telegram()) {

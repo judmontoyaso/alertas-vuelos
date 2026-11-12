@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 
 export const SCHEMA = "vuelo";
 export const TABLE = "flight_alerts";
+export const HISTORY_TABLE = "price_history";
 
 function create(url: string, key: string) {
   return createClient(url, key, { db: { schema: SCHEMA }, auth: { persistSession: false } });

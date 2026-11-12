@@ -1,0 +1,157 @@
+"use client";
+
+import { googleFlightsUrl } from "@/lib/flights";
+import { formatPrice, TRIP_LENGTHS, tripDurations, type Alert } from "@/lib/types";
+
+const PLANE = "M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z";
+
+export function formatDate(iso: string) {
+  return new Date(`${iso}T12:00:00`).toLocaleDateString("es-CO", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function formatRange(from: string, to: string) {
+  return from === to ? `el ${formatDate(from)}` : `entre el ${formatDate(from)} y el ${formatDate(to)}`;
+}
+
+function formatChecked(iso: string) {
+  return new Date(iso).toLocaleString("es-CO", {
+    day: "numeric",
+    month: "short",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+export function monthName(month: number) {
+  const name = new Date(2000, month - 1, 1).toLocaleDateString("es-CO", { month: "long" });
+  return name;
+}
+
+const cityOf = (label: string) => label.split(" (")[0];
+
+function describe(alert: Alert) {
+  if (alert.mode === "deal") {
+    const when = alert.month === 0 ? "en los próximos 6 meses" : `en ${monthName(alert.month)}`;
+    return alert.round_trip
+      ? `Cualquier fecha ${when}, viaje de ${TRIP_LENGTHS[alert.trip_length as 1 | 2 | 3].toLowerCase()}`
+      : `Solo ida, cualquier fecha ${when}`;
+  }
+  const out = formatRange(alert.out_from!, alert.out_to!);
+  return alert.round_trip
+    ? `Ida ${out}, regreso ${formatRange(alert.ret_from!, alert.ret_to!)}`
+    : `Solo ida ${out}`;
+}
+
+type Props = {
+  alert: Alert;
+  busy: boolean;
+  canCheck: boolean;
+  onCheck: () => void;
+  onToggle: () => void;
+  onDelete: () => void;
+};
+
+export default function AlertCard({ alert, busy, canCheck, onCheck, onToggle, onDelete }: Props) {
+  const threshold = alert.target_price ?? alert.typical_low;
+  const hit = alert.last_price !== null && threshold !== null && alert.last_price <= threshold;
+  const pendingDurations =
+    alert.mode === "dates" && alert.round_trip
+      ? tripDurations(alert).filter((d) => !alert.grid?.[d]).length
+      : 0;
+
+  return (
+    <li className={`alert${hit ? " hit" : ""}${alert.active ? "" : " paused"}`}>
+      <div className="alert-main">
+        <div>
+          <div className="route">
+            <span>{alert.origin.replaceAll(",", "/")}</span>
+            <span className="route-line" aria-hidden="true" />
+            <svg
+              width="26"
+              height="26"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              aria-hidden="true"
+              style={{ transform: "rotate(90deg)" }}
+            >
+              <path d={PLANE} />
+            </svg>
+            <span className="route-line" aria-hidden="true" />
+            <span>{alert.destination.replaceAll(",", "/")}</span>
+          </div>
+          <p className="cities">
+            {cityOf(alert.origin_label)} a {cityOf(alert.destination_label)}
+          </p>
+          <p className="dates">
+            {describe(alert)}
+            {!alert.active && " (en pausa)"}
+          </p>
+        </div>
+        <div className="prices">
+          {alert.last_price !== null ? (
+            <>
+              <p className="now">{formatPrice(alert.last_price, alert.currency)}</p>
+              {alert.best_outbound && (
+                <p className="target">
+                  Sale el {formatDate(alert.best_outbound)}
+                  {alert.best_return && `, regresa el ${formatDate(alert.best_return)}`}
+                  {alert.best_airline && `, ${alert.best_airline}`}
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="now empty">Sin precio todavía</p>
+          )}
+          <p className="target">
+            {alert.target_price !== null
+              ? `Tu tope: ${formatPrice(alert.target_price, alert.currency)}`
+              : alert.typical_low !== null
+                ? `Automático: avisa por debajo de ${formatPrice(alert.typical_low, alert.currency)}`
+                : "Automático: avisa cuando baje de lo habitual"}
+          </p>
+          {alert.last_price !== null && threshold !== null && (
+            <span className={`verdict${hit ? " hit" : ""}`}>
+              {hit
+                ? "Ya está en el precio que buscas"
+                : `Le faltan ${formatPrice(alert.last_price - threshold, alert.currency)} por bajar`}
+            </span>
+          )}
+        </div>
+      </div>
+      {alert.last_error && <p className="alert-note">{alert.last_error}</p>}
+      {!alert.last_error && alert.last_checked_at && pendingDurations > 0 && (
+        <p className="alert-note">
+          Faltan {pendingDurations} combinaciones de fechas por revisar; se consultan 3 por día.
+        </p>
+      )}
+      <div className="alert-foot">
+        <span>
+          {alert.last_checked_at ? `Revisado ${formatChecked(alert.last_checked_at)}` : "Aún sin revisar"}
+          {". "}
+          <a
+            href={googleFlightsUrl(alert.origin, alert.destination, alert.best_outbound, alert.best_return, alert.currency)}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Ver en Google Flights
+          </a>
+        </span>
+        <span className="actions">
+          <button className="btn quiet" disabled={busy || !canCheck} onClick={onCheck}>
+            {busy ? "Consultando…" : "Consultar precio ahora"}
+          </button>
+          <button className="btn quiet" disabled={busy} onClick={onToggle}>
+            {alert.active ? "Pausar" : "Reanudar"}
+          </button>
+          <button className="btn quiet danger" disabled={busy} onClick={onDelete}>
+            Eliminar
+          </button>
+        </span>
+      </div>
+    </li>
+  );
+}

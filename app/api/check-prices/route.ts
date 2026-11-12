@@ -4,7 +4,7 @@ import { checkAlerts } from "@/lib/check";
 import { getDb, TABLE } from "@/lib/db";
 import type { Alert } from "@/lib/types";
 
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 // Lo ejecuta el Cron Job de Vercel (vercel.json) con Authorization: Bearer CRON_SECRET.
 export async function GET(request: Request) {

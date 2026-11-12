@@ -1,13 +1,27 @@
 "use client";
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { googleFlightsUrl } from "@/lib/flights";
-import { CURRENCIES, formatPrice, type Alert } from "@/lib/types";
+import type { Place } from "@/lib/airports";
+import {
+  addDays,
+  CURRENCIES,
+  formatPrice,
+  todayIso,
+  TRIP_LENGTHS,
+  tripDurations,
+  type Alert,
+  type Currency,
+  type Mode,
+  type Quote,
+} from "@/lib/types";
+import AirportField from "./airport-field";
+import AlertCard, { formatDate, monthName } from "./alert-card";
 
 type Config = { flights: boolean; email: boolean; telegram: boolean };
 type View = "loading" | "gate" | "ready" | "setup";
 
 const CODE_KEY = "vuelos-access-code";
+const CHECKS_PER_DAY = 3;
 
 function readCode() {
   try {
@@ -17,21 +31,10 @@ function readCode() {
   }
 }
 
-function formatDate(iso: string) {
-  return new Date(`${iso}T12:00:00`).toLocaleDateString("es-CO", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-}
-
-function formatChecked(iso: string) {
-  return new Date(iso).toLocaleString("es-CO", {
-    day: "numeric",
-    month: "short",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+// Los seis meses que cubre "cualquier fecha", empezando por el actual.
+function nextMonths() {
+  const now = new Date();
+  return Array.from({ length: 6 }, (_, i) => ((now.getMonth() + i) % 12) + 1);
 }
 
 export default function AlertsApp() {
@@ -40,10 +43,46 @@ export default function AlertsApp() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [config, setConfig] = useState<Config | null>(null);
   const [error, setError] = useState("");
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  // Formulario
+  const [mode, setMode] = useState<Mode>("dates");
+  const [origin, setOrigin] = useState<Place | null>(null);
+  const [destination, setDestination] = useState<Place | null>(null);
+  const [roundTrip, setRoundTrip] = useState(true);
+  const [outFrom, setOutFrom] = useState("");
+  const [outTo, setOutTo] = useState("");
+  const [retFrom, setRetFrom] = useState("");
+  const [retTo, setRetTo] = useState("");
+  const [month, setMonth] = useState(0);
+  const [tripLength, setTripLength] = useState(2);
+  const [currency, setCurrency] = useState<Currency>("COP");
+  const [target, setTarget] = useState("");
+  const [email, setEmail] = useState("");
+  const [telegram, setTelegram] = useState("");
   const [formError, setFormError] = useState("");
   const [saving, setSaving] = useState(false);
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [roundTrip, setRoundTrip] = useState(true);
+  const [quoting, setQuoting] = useState(false);
+  const [quote, setQuote] = useState<{ key: string; data: Quote } | null>(null);
+  const [formKey, setFormKey] = useState(0); // reinicia los buscadores de aeropuerto
+
+  const search = {
+    mode,
+    origin: origin?.codes ?? "",
+    destination: destination?.codes ?? "",
+    round_trip: roundTrip,
+    out_from: outFrom || null,
+    out_to: outTo || outFrom || null,
+    ret_from: retFrom || null,
+    ret_to: retTo || retFrom || null,
+    month,
+    trip_length: tripLength,
+    currency,
+  };
+  const searchKey = JSON.stringify(search);
+  const shownQuote = quote?.key === searchKey ? quote.data : null;
+  const durations = mode === "dates" && roundTrip ? tripDurations(search).length : 0;
+  const dailySearches = mode === "dates" && roundTrip ? Math.min(CHECKS_PER_DAY, Math.max(1, durations)) : 1;
 
   const api = useCallback(
     async (path: string, init: RequestInit = {}, accessCode = code) => {
@@ -95,15 +134,39 @@ export default function AlertsApp() {
     await load(code);
   }
 
+  function missingPlace() {
+    if (origin && destination) return false;
+    setFormError("Elige el origen y el destino de la lista de aeropuertos.");
+    return true;
+  }
+
+  async function suggestPrices() {
+    if (missingPlace()) return;
+    setQuoting(true);
+    setFormError("");
+    const { res, data } = await api("/api/quote", { method: "POST", body: JSON.stringify(search) });
+    setQuoting(false);
+    if (!res.ok) {
+      setFormError(data.error ?? "No se pudieron consultar los precios.");
+      return;
+    }
+    setQuote({ key: searchKey, data: data.quote });
+  }
+
   async function createAlert(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    const form = e.currentTarget;
-    const values = Object.fromEntries(new FormData(form));
+    if (missingPlace()) return;
     setSaving(true);
     setFormError("");
     const { res, data } = await api("/api/alerts", {
       method: "POST",
-      body: JSON.stringify({ ...values, return_date: roundTrip ? values.return_date : null }),
+      body: JSON.stringify({
+        ...search,
+        target_price: target,
+        email,
+        telegram_chat_id: telegram,
+        typical: shownQuote?.typical,
+      }),
     });
     setSaving(false);
     if (!res.ok) {
@@ -111,7 +174,11 @@ export default function AlertsApp() {
       return;
     }
     setAlerts((list) => [data.alert, ...list]);
-    form.reset();
+    setOrigin(null);
+    setDestination(null);
+    setTarget("");
+    setQuote(null);
+    setFormKey((k) => k + 1);
   }
 
   async function act(alert: Alert, init: RequestInit) {
@@ -128,7 +195,6 @@ export default function AlertsApp() {
       return;
     }
     setAlerts((list) => list.map((a) => (a.id === alert.id ? data.alert : a)));
-    if (data.result?.error) setError(`${alert.origin} a ${alert.destination}: ${data.result.error}`);
   }
 
   if (view === "loading") {
@@ -171,7 +237,7 @@ export default function AlertsApp() {
           <h2>Falta configuración</h2>
           <p className="notice error">{error}</p>
           <p style={{ marginTop: "1rem" }}>
-            Agrega las variables en Vercel (Settings, Environment Variables), crea la tabla con{" "}
+            Agrega las variables en Vercel (Settings, Environment Variables), crea las tablas con{" "}
             <code>supabase/schema.sql</code> y vuelve a desplegar.
           </p>
         </div>
@@ -179,7 +245,7 @@ export default function AlertsApp() {
     );
   }
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayIso();
   const active = alerts.filter((a) => a.active).length;
 
   return (
@@ -187,35 +253,43 @@ export default function AlertsApp() {
       <section className="panel form-panel" aria-labelledby="new-alert">
         <h2 id="new-alert">Vigilar una ruta</h2>
         <form onSubmit={createAlert}>
+          <div className="modes" role="radiogroup" aria-label="Tipo de alerta">
+            {(
+              [
+                ["dates", "Tengo fechas", "Rangos de ida y de regreso"],
+                ["deal", "Cualquier fecha", "Avísame cuando haya oferta"],
+              ] as const
+            ).map(([value, title, hint]) => (
+              <label key={value} className={mode === value ? "mode on" : "mode"}>
+                <input
+                  type="radio"
+                  name="mode"
+                  checked={mode === value}
+                  onChange={() => setMode(value)}
+                />
+                <strong>{title}</strong>
+                <span>{hint}</span>
+              </label>
+            ))}
+          </div>
+
           <div className="fields">
-            <div className="field">
-              <label htmlFor="origin">Origen</label>
-              <input
-                id="origin"
-                name="origin"
-                className="iata"
-                placeholder="MDE"
-                maxLength={3}
-                pattern="[A-Za-z]{3}"
-                title="Código de aeropuerto de 3 letras"
-                autoCapitalize="characters"
-                required
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="destination">Destino</label>
-              <input
-                id="destination"
-                name="destination"
-                className="iata"
-                placeholder="MAD"
-                maxLength={3}
-                pattern="[A-Za-z]{3}"
-                title="Código de aeropuerto de 3 letras"
-                autoCapitalize="characters"
-                required
-              />
-            </div>
+            <AirportField
+              key={`origin-${formKey}`}
+              id="origin"
+              label="Origen"
+              placeholder="Ciudad, aeropuerto o código"
+              value={origin}
+              onChange={setOrigin}
+            />
+            <AirportField
+              key={`destination-${formKey}`}
+              id="destination"
+              label="Destino"
+              placeholder="Ciudad, aeropuerto o código"
+              value={destination}
+              onChange={setDestination}
+            />
             <div className="field wide">
               <label htmlFor="trip">Tipo de viaje</label>
               <select
@@ -227,40 +301,172 @@ export default function AlertsApp() {
                 <option value="oneway">Solo ida</option>
               </select>
             </div>
-            <div className={roundTrip ? "field" : "field wide"}>
-              <label htmlFor="outbound_date">Salida</label>
-              <input id="outbound_date" name="outbound_date" type="date" min={today} required />
-            </div>
-            {roundTrip && (
-              <div className="field">
-                <label htmlFor="return_date">Regreso</label>
-                <input id="return_date" name="return_date" type="date" min={today} required />
-              </div>
+
+            {mode === "dates" ? (
+              <>
+                <fieldset className="field wide range">
+                  <legend>Puedo salir entre</legend>
+                  <input
+                    type="date"
+                    aria-label="Ida, desde"
+                    min={today}
+                    value={outFrom}
+                    onChange={(e) => setOutFrom(e.target.value)}
+                    required
+                  />
+                  <span>y</span>
+                  <input
+                    type="date"
+                    aria-label="Ida, hasta"
+                    min={outFrom || today}
+                    max={outFrom ? addDays(outFrom, 31) : undefined}
+                    value={outTo}
+                    onChange={(e) => setOutTo(e.target.value)}
+                  />
+                </fieldset>
+                {roundTrip && (
+                  <fieldset className="field wide range">
+                    <legend>Puedo regresar entre</legend>
+                    <input
+                      type="date"
+                      aria-label="Regreso, desde"
+                      min={outFrom || today}
+                      value={retFrom}
+                      onChange={(e) => setRetFrom(e.target.value)}
+                      required
+                    />
+                    <span>y</span>
+                    <input
+                      type="date"
+                      aria-label="Regreso, hasta"
+                      min={retFrom || outFrom || today}
+                      max={retFrom ? addDays(retFrom, 31) : undefined}
+                      value={retTo}
+                      onChange={(e) => setRetTo(e.target.value)}
+                    />
+                    <small>Deja vacía la segunda fecha si solo te sirve un día.</small>
+                  </fieldset>
+                )}
+              </>
+            ) : (
+              <>
+                <div className={roundTrip ? "field" : "field wide"}>
+                  <label htmlFor="month">Cuándo</label>
+                  <select id="month" value={month} onChange={(e) => setMonth(Number(e.target.value))}>
+                    <option value={0}>Próximos 6 meses</option>
+                    {nextMonths().map((m) => (
+                      <option key={m} value={m}>
+                        {monthName(m)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {roundTrip && (
+                  <div className="field">
+                    <label htmlFor="trip_length">Duración</label>
+                    <select
+                      id="trip_length"
+                      value={tripLength}
+                      onChange={(e) => setTripLength(Number(e.target.value))}
+                    >
+                      {Object.entries(TRIP_LENGTHS).map(([value, name]) => (
+                        <option key={value} value={value}>
+                          {name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </>
             )}
+
             <div className="field">
-              <label htmlFor="target_price">Precio tope</label>
+              <label htmlFor="target_price">Precio tope (opcional)</label>
               <input
                 id="target_price"
-                name="target_price"
                 type="number"
                 min={1}
                 step="any"
                 inputMode="decimal"
-                placeholder="2500000"
-                required
+                value={target}
+                onChange={(e) => setTarget(e.target.value)}
               />
             </div>
             <div className="field">
               <label htmlFor="currency">Moneda</label>
-              <select id="currency" name="currency" defaultValue="COP">
+              <select
+                id="currency"
+                value={currency}
+                onChange={(e) => setCurrency(e.target.value as Currency)}
+              >
                 {CURRENCIES.map((c) => (
                   <option key={c}>{c}</option>
                 ))}
               </select>
             </div>
             <div className="field wide">
+              <small>
+                Sin tope, te avisamos cuando el precio baje de lo habitual para la ruta según
+                Google Flights.
+              </small>
+              <button
+                type="button"
+                className="btn"
+                disabled={quoting || !config?.flights}
+                onClick={suggestPrices}
+              >
+                {quoting ? "Consultando precios…" : "Ver precio de hoy y sugerir topes"}
+              </button>
+            </div>
+
+            {shownQuote && (
+              <div className="quote wide" aria-live="polite">
+                {shownQuote.price === null ? (
+                  <p>{shownQuote.message}</p>
+                ) : (
+                  <>
+                    <p>
+                      <strong>Hoy: {formatPrice(shownQuote.price, currency)}</strong>
+                      {shownQuote.outbound && `, saliendo el ${formatDate(shownQuote.outbound)}`}
+                      {shownQuote.return && ` y regresando el ${formatDate(shownQuote.return)}`}
+                      {shownQuote.airline && ` con ${shownQuote.airline}`}.
+                    </p>
+                    {shownQuote.typical && (
+                      <p>
+                        Lo habitual es entre {formatPrice(shownQuote.typical[0], currency)} y{" "}
+                        {formatPrice(shownQuote.typical[1], currency)}
+                        {shownQuote.level === "low" && ", así que hoy está barato"}
+                        {shownQuote.level === "high" && ", así que hoy está caro"}.
+                      </p>
+                    )}
+                    <ul className="chips">
+                      {shownQuote.suggestions.map((s) => (
+                        <li key={s.value}>
+                          <button
+                            type="button"
+                            className={Number(target) === s.value ? "chip on" : "chip"}
+                            onClick={() => setTarget(String(s.value))}
+                          >
+                            <strong>{formatPrice(s.value, currency)}</strong>
+                            <span>{s.label}</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+              </div>
+            )}
+
+            <div className="field wide">
               <label htmlFor="email">Correo para el aviso</label>
-              <input id="email" name="email" type="email" placeholder="tu@correo.com" />
+              <input
+                id="email"
+                type="email"
+                placeholder="tu@correo.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
               {config && !config.email && (
                 <small>El correo aún no está activo: falta RESEND_API_KEY.</small>
               )}
@@ -269,9 +475,10 @@ export default function AlertsApp() {
               <label htmlFor="telegram_chat_id">Chat ID de Telegram</label>
               <input
                 id="telegram_chat_id"
-                name="telegram_chat_id"
                 inputMode="numeric"
                 placeholder="123456789"
+                value={telegram}
+                onChange={(e) => setTelegram(e.target.value)}
               />
               <small>
                 {config && !config.telegram
@@ -280,6 +487,7 @@ export default function AlertsApp() {
               </small>
             </div>
           </div>
+
           {formError && (
             <p className="notice error" style={{ marginTop: "1rem" }}>
               {formError}
@@ -292,6 +500,11 @@ export default function AlertsApp() {
           >
             {saving ? "Guardando…" : "Crear alerta"}
           </button>
+          <p className="cost">
+            {durations > CHECKS_PER_DAY
+              ? `Tus rangos dan ${durations} duraciones de viaje distintas. Se revisan ${CHECKS_PER_DAY} por día, rotando, para cuidar las búsquedas de SerpApi.`
+              : `Esta alerta gasta ${dailySearches} ${dailySearches === 1 ? "búsqueda" : "búsquedas"} de SerpApi al día.`}
+          </p>
         </form>
       </section>
 
@@ -321,99 +534,19 @@ export default function AlertsApp() {
           </div>
         ) : (
           <ul className="alerts">
-            {alerts.map((alert) => {
-              const hit = alert.last_price !== null && alert.last_price <= alert.target_price;
-              const busy = busyId === alert.id;
-              return (
-                <li
-                  key={alert.id}
-                  className={`alert${hit ? " hit" : ""}${alert.active ? "" : " paused"}`}
-                >
-                  <div className="alert-main">
-                    <div>
-                      <div className="route">
-                        <span>{alert.origin}</span>
-                        <span className="route-line" aria-hidden="true" />
-                        <svg
-                          width="26"
-                          height="26"
-                          viewBox="0 0 24 24"
-                          fill="currentColor"
-                          aria-hidden="true"
-                          style={{ transform: "rotate(90deg)" }}
-                        >
-                          <path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z" />
-                        </svg>
-                        <span className="route-line" aria-hidden="true" />
-                        <span>{alert.destination}</span>
-                      </div>
-                      <p className="dates">
-                        {alert.return_date
-                          ? `Ida ${formatDate(alert.outbound_date)}, regreso ${formatDate(alert.return_date)}`
-                          : `Solo ida, ${formatDate(alert.outbound_date)}`}
-                        {!alert.active && " (en pausa)"}
-                      </p>
-                    </div>
-                    <div className="prices">
-                      {alert.last_price !== null ? (
-                        <p className="now">{formatPrice(alert.last_price, alert.currency)}</p>
-                      ) : (
-                        <p className="now empty">Sin precio todavía</p>
-                      )}
-                      <p className="target">
-                        Tu tope: {formatPrice(alert.target_price, alert.currency)}
-                      </p>
-                      {alert.last_price !== null && (
-                        <span className={`verdict${hit ? " hit" : ""}`}>
-                          {hit
-                            ? "Ya está en tu tope o por debajo"
-                            : `Le faltan ${formatPrice(alert.last_price - alert.target_price, alert.currency)} por bajar`}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="alert-foot">
-                    <span>
-                      {alert.last_checked_at
-                        ? `Revisado ${formatChecked(alert.last_checked_at)}`
-                        : "Aún sin revisar"}
-                      {". "}
-                      <a href={googleFlightsUrl(alert)} target="_blank" rel="noopener noreferrer">
-                        Ver en Google Flights
-                      </a>
-                    </span>
-                    <span className="actions">
-                      <button
-                        className="btn quiet"
-                        disabled={busy || !config?.flights}
-                        onClick={() => act(alert, { method: "POST" })}
-                      >
-                        {busy ? "Consultando…" : "Consultar precio ahora"}
-                      </button>
-                      <button
-                        className="btn quiet"
-                        disabled={busy}
-                        onClick={() =>
-                          act(alert, {
-                            method: "PATCH",
-                            body: JSON.stringify({ active: !alert.active }),
-                          })
-                        }
-                      >
-                        {alert.active ? "Pausar" : "Reanudar"}
-                      </button>
-                      <button
-                        className="btn quiet danger"
-                        disabled={busy}
-                        onClick={() => act(alert, { method: "DELETE" })}
-                      >
-                        Eliminar
-                      </button>
-                    </span>
-                  </div>
-                </li>
-              );
-            })}
+            {alerts.map((alert) => (
+              <AlertCard
+                key={alert.id}
+                alert={alert}
+                busy={busyId === alert.id}
+                canCheck={Boolean(config?.flights)}
+                onCheck={() => act(alert, { method: "POST" })}
+                onToggle={() =>
+                  act(alert, { method: "PATCH", body: JSON.stringify({ active: !alert.active }) })
+                }
+                onDelete={() => act(alert, { method: "DELETE" })}
+              />
+            ))}
           </ul>
         )}
       </section>

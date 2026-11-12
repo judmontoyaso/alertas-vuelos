@@ -1,15 +1,13 @@
 import { NextResponse } from "next/server";
+import { labelFor } from "@/lib/airports";
 import { requireAccess } from "@/lib/auth";
 import { getDb, TABLE } from "@/lib/db";
 import { channels } from "@/lib/notify";
-import { CURRENCIES, type Currency } from "@/lib/types";
+import { validateSearch } from "@/lib/search";
 
-
-// Tope para no agotar los creditos de SerpApi: cada alerta activa gasta una busqueda diaria.
+// Tope para no agotar los creditos de SerpApi: cada alerta activa gasta busquedas a diario.
 const MAX_ACTIVE_ALERTS = 30;
 
-const IATA = /^[A-Z]{3}$/;
-const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const noDb = () =>
@@ -49,36 +47,26 @@ export async function POST(request: Request) {
   if (!body || typeof body !== "object") {
     return NextResponse.json({ error: "Datos inválidos." }, { status: 400 });
   }
-  const origin = String(body.origin ?? "").trim().toUpperCase();
-  const destination = String(body.destination ?? "").trim().toUpperCase();
-  const outbound_date = String(body.outbound_date ?? "");
-  const return_date = body.return_date ? String(body.return_date) : null;
-  const currency = String(body.currency ?? "COP") as Currency;
-  const target_price = Number(body.target_price);
+  const validated = validateSearch(body);
+  if ("error" in validated) return NextResponse.json({ error: validated.error }, { status: 400 });
+
+  // Sin precio tope la alerta es automatica: avisa cuando el precio baja del rango habitual.
+  const hasTarget = body.target_price !== undefined && body.target_price !== null && body.target_price !== "";
+  const target_price = hasTarget ? Number(body.target_price) : null;
   const email = String(body.email ?? "").trim() || null;
   const telegram_chat_id = String(body.telegram_chat_id ?? "").trim() || null;
-  const today = new Date().toISOString().slice(0, 10);
+  const typical = Array.isArray(body.typical) ? body.typical.map(Number) : [];
 
   const problem =
-    !IATA.test(origin) || !IATA.test(destination)
-      ? "Origen y destino son códigos de aeropuerto de 3 letras, como MDE o MAD."
-      : origin === destination
-        ? "El destino debe ser distinto del origen."
-        : !DATE.test(outbound_date) || outbound_date < today
-          ? "La fecha de salida debe ser hoy o posterior."
-          : return_date && (!DATE.test(return_date) || return_date < outbound_date)
-            ? "La fecha de regreso no puede ser anterior a la de salida."
-            : !CURRENCIES.includes(currency)
-              ? "Moneda no admitida."
-              : !Number.isFinite(target_price) || target_price <= 0
-                ? "El precio tope debe ser mayor que cero."
-                : !email && !telegram_chat_id
-                  ? "Indica un correo o un chat de Telegram para avisarte."
-                  : email && !EMAIL.test(email)
-                    ? "El correo no es válido."
-                    : telegram_chat_id && !/^-?\d+$/.test(telegram_chat_id)
-                      ? "El chat ID de Telegram es un número."
-                      : null;
+    target_price !== null && (!Number.isFinite(target_price) || target_price <= 0)
+      ? "El precio tope debe ser mayor que cero."
+      : !email && !telegram_chat_id
+        ? "Indica un correo o un chat de Telegram para avisarte."
+        : email && !EMAIL.test(email)
+          ? "El correo no es válido."
+          : telegram_chat_id && !/^-?\d+$/.test(telegram_chat_id)
+            ? "El chat ID de Telegram es un número."
+            : null;
   if (problem) return NextResponse.json({ error: problem }, { status: 400 });
 
   const { count } = await db
@@ -92,17 +80,20 @@ export async function POST(request: Request) {
     );
   }
 
+  // Si el formulario ya consulto precios, se guarda el rango habitual para no repetir la busqueda.
+  const knownTypical = typical.length === 2 && typical.every((n: number) => Number.isFinite(n) && n > 0);
   const { data, error } = await db
     .from(TABLE)
     .insert({
-      origin,
-      destination,
-      outbound_date,
-      return_date,
-      currency,
+      ...validated.search,
+      origin_label: labelFor(validated.search.origin),
+      destination_label: labelFor(validated.search.destination),
       target_price,
       email,
       telegram_chat_id,
+      ...(knownTypical
+        ? { typical_low: typical[0], typical_high: typical[1], insights_at: new Date().toISOString() }
+        : {}),
     })
     .select()
     .single();
