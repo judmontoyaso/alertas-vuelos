@@ -1,5 +1,8 @@
 -- Ejecutar una vez en el SQL Editor de Supabase.
-create table if not exists public.flight_alerts (
+-- Ademas hay que exponer el esquema: Project Settings -> Data API -> Exposed schemas -> vuelo.
+create schema if not exists vuelo;
+
+create table if not exists vuelo.flight_alerts (
   id uuid primary key default gen_random_uuid(),
   origin text not null check (origin ~ '^[A-Z]{3}$'),
   destination text not null check (destination ~ '^[A-Z]{3}$'),
@@ -19,5 +22,7 @@ create table if not exists public.flight_alerts (
   check (email is not null or telegram_chat_id is not null)
 );
 
--- Sin politicas: solo el servidor (clave secreta) puede leer o escribir.
-alter table public.flight_alerts enable row level security;
+-- Sin politicas y sin permisos para anon/authenticated: solo el servidor (clave secreta) entra.
+alter table vuelo.flight_alerts enable row level security;
+grant usage on schema vuelo to service_role;
+grant all on all tables in schema vuelo to service_role;
