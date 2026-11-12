@@ -1,7 +1,7 @@
 import { getDb, HISTORY_TABLE, TABLE } from "./db";
 import { getInsights } from "./flights";
 import { sendNotification } from "./notify";
-import { findBest, noPriceMessage } from "./search";
+import { findBest, isSatena, noPriceMessage } from "./search";
 import { todayIso, type Alert, type CheckResult } from "./types";
 
 const BATCH_SIZE = 3;
@@ -36,14 +36,17 @@ export async function checkAlert(alert: Alert): Promise<CheckResult> {
   const best = await findBest(alert, alert.grid ?? {}, MAX_CALLS_PER_ALERT);
   const now = new Date().toISOString();
   if (best.price === null || !best.outbound) {
-    const error = noPriceMessage(best);
+    const error = noPriceMessage(best, alert.currency);
     await update({ grid: best.grid, last_checked_at: now, last_error: error });
     return { id: alert.id, price: null, notified: false, error };
   }
 
   // Sin tope elegido, la referencia es la parte baja del rango habitual de Google.
   let { typical_low, typical_high, insights_at } = alert;
-  if (alert.target_price === null && (typical_low === null || olderThan(insights_at, INSIGHTS_MAX_AGE_MS))) {
+  if (isSatena(best)) {
+    // Un rango habitual guardado seria de otra aerolinea; se compara contra lo que la app ha visto.
+    typical_low = typical_high = insights_at = null;
+  } else if (alert.target_price === null && (typical_low === null || olderThan(insights_at, INSIGHTS_MAX_AGE_MS))) {
     const insights = await getInsights({
       origin: alert.origin, destination: alert.destination, currency: alert.currency,
       outbound: best.outbound, return: best.return,

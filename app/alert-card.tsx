@@ -1,6 +1,6 @@
 "use client";
 
-import { googleFlightsUrl } from "@/lib/flights";
+import { bookingLink } from "@/lib/flights";
 import { cityOf, describeAlert, describeOption, formatDate } from "@/lib/format";
 import { formatPrice, tripDurations, type Alert } from "@/lib/types";
 
@@ -29,6 +29,7 @@ export default function AlertCard({ alert, busy, canCheck, onCheck, onEdit, onTo
   const threshold = alert.target_price ?? alert.typical_low;
   const hit = alert.last_price !== null && threshold !== null && alert.last_price <= threshold;
   const options = alert.options ?? [];
+  const booking = bookingLink(alert, { out: alert.best_outbound, ret: alert.best_return, airline: alert.best_airline });
   const pendingDurations =
     alert.mode === "dates" && alert.round_trip
       ? tripDurations(alert).filter((d) => !alert.grid?.[d]).length
@@ -105,7 +106,7 @@ export default function AlertCard({ alert, busy, canCheck, onCheck, onEdit, onTo
             {options.map((o, i) => (
               <li key={`${o.out}-${o.ret}-${o.airline}-${i}`}>
                 <a
-                  href={googleFlightsUrl(alert.origin, alert.destination, o.out, o.ret, alert.currency)}
+                  href={bookingLink(alert, o).url}
                   target="_blank"
                   rel="noopener noreferrer"
                 >
@@ -127,12 +128,8 @@ export default function AlertCard({ alert, busy, canCheck, onCheck, onEdit, onTo
         <span>
           {alert.last_checked_at ? `Revisado ${formatChecked(alert.last_checked_at)}` : "Aún sin revisar"}
           {". "}
-          <a
-            href={googleFlightsUrl(alert.origin, alert.destination, alert.best_outbound, alert.best_return, alert.currency)}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Ver en Google Flights
+          <a href={booking.url} target="_blank" rel="noopener noreferrer">
+            {booking.label}
           </a>
         </span>
         <span className="actions">

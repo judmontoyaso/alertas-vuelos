@@ -1,4 +1,4 @@
-import { googleFlightsUrl } from "./flights";
+import { bookingLink } from "./flights";
 import { cityOf, describeAlert, describeOption, formatDate } from "./format";
 import { formatPrice, type Alert, type FlightOption } from "./types";
 
@@ -195,10 +195,7 @@ export function priceEmail(alert: Alert, found: Found): Email {
       ),
       ["Tu búsqueda", describeAlert(alert)],
     ],
-    cta: {
-      label: "Ver en Google Flights",
-      url: googleFlightsUrl(alert.origin, alert.destination, found.outbound, found.return, alert.currency),
-    },
+    cta: bookingLink(alert, { out: found.outbound, ret: found.return, airline: found.airline }),
     footer: `${FOOTER} Los precios cambian rápido: confirma el valor antes de comprar.`,
   };
   return { subject: `${route} por ${price}`, html: layout(l), text: textVersion(l) };

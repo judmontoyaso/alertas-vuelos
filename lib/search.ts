@@ -1,5 +1,6 @@
 import { isValidCodes } from "./airports";
 import { getCalendar, getDeal, getInsights } from "./flights";
+import { findSatena, SATENA } from "./satena";
 import {
   addDays,
   CURRENCIES,
@@ -30,6 +31,9 @@ export type Best = {
   grid: Record<string, GridCell>;
   options: FlightOption[];
 };
+
+// Satena no esta en Google: sin rango habitual ni historial que consultar alli.
+export const isSatena = (best: Pick<Best, "airline">) => best.airline === SATENA;
 
 const maxDate = (a: string, b: string) => (a > b ? a : b);
 const minDate = (a: string, b: string) => (a < b ? a : b);
@@ -139,6 +143,24 @@ export async function findBest(
   previous: Record<string, GridCell>,
   maxCalls: number,
 ): Promise<Best> {
+  const best = await findInGoogle(s, previous, maxCalls);
+  if (best.price !== null) return best;
+
+  // Google no tiene precio: puede ser una ruta de Satena, que publica sus tarifas aparte.
+  const options = await findSatena(s).catch((error) => {
+    console.error("Error consultando Satena:", error instanceof Error ? error.message : error);
+    return [];
+  });
+  if (options.length === 0) return best;
+  const [first] = options;
+  return { price: first.price, outbound: first.out, return: first.ret, airline: SATENA, grid: best.grid, options };
+}
+
+async function findInGoogle(
+  s: Search,
+  previous: Record<string, GridCell>,
+  maxCalls: number,
+): Promise<Best> {
   const route = { origin: s.origin, destination: s.destination, currency: s.currency };
 
   if (s.mode === "deal") {
@@ -217,7 +239,10 @@ export async function findBest(
   };
 }
 
-export function noPriceMessage(best: Best) {
+export function noPriceMessage(best: Best, currency: Currency = "COP") {
+  if (isSatena(best) && currency !== "COP") {
+    return "Esta ruta la vuela Satena, que solo publica tarifas en pesos colombianos. Cambia la moneda a COP para vigilarla.";
+  }
   return best.airline
     ? `Google Flights conoce la ruta (${best.airline}) pero no publica su precio, así que no se puede vigilar.`
     : "Google Flights no tiene precios para esta búsqueda.";
@@ -231,13 +256,15 @@ export async function getQuote(s: Search): Promise<Quote> {
   const best = await findBest(s, {}, 1);
   const empty = { options: [], typical: null, level: null, history_days: 0, suggestions: [] };
   if (best.price === null || !best.outbound) {
-    return { price: null, outbound: null, return: null, airline: best.airline, ...empty, message: noPriceMessage(best) };
+    return { price: null, outbound: null, return: null, airline: best.airline, ...empty, message: noPriceMessage(best, s.currency) };
   }
 
-  const insights = await getInsights({
-    origin: s.origin, destination: s.destination, currency: s.currency,
-    outbound: best.outbound, return: best.return,
-  });
+  const insights = isSatena(best)
+    ? { typical: null, level: null, history: [] }
+    : await getInsights({
+        origin: s.origin, destination: s.destination, currency: s.currency,
+        outbound: best.outbound, return: best.return,
+      });
   const historyPrices = insights.history.map((h) => h[1]);
   const history_days = insights.history.length
     ? Math.round((insights.history.at(-1)![0] - insights.history[0][0]) / 86400) + 1

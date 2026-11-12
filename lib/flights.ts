@@ -1,3 +1,4 @@
+import { SATENA, SATENA_URL } from "./satena";
 import { MAX_OPTIONS, type Currency, type FlightOption } from "./types";
 
 // Cada funcion de este archivo gasta una busqueda de SerpApi.
@@ -31,6 +32,19 @@ export function googleFlightsUrl(
   const when = outbound ? ` on ${outbound}${ret ? ` through ${ret}` : " one way"}` : "";
   const q = `Flights from ${from} to ${to}${when}`;
   return `https://www.google.com/travel/flights?q=${encodeURIComponent(q)}&curr=${currency}`;
+}
+
+// Donde comprar una opcion: Satena en su pagina (no esta en Google), el resto en Google Flights.
+export function bookingLink(
+  route: { origin: string; destination: string; currency: string },
+  flight: { out: string | null; ret: string | null; airline?: string | null },
+) {
+  return flight.airline === SATENA
+    ? { label: "Ver en Satena", url: SATENA_URL }
+    : {
+        label: "Ver en Google Flights",
+        url: googleFlightsUrl(route.origin, route.destination, flight.out, flight.ret, route.currency),
+      };
 }
 
 async function serpapi(params: Record<string, string>) {
