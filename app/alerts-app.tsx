@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import type { Place } from "@/lib/airports";
+import { formatDate, monthName } from "@/lib/format";
 import {
   addDays,
   CURRENCIES,
@@ -15,7 +16,7 @@ import {
   type Quote,
 } from "@/lib/types";
 import AirportField from "./airport-field";
-import AlertCard, { formatDate, monthName } from "./alert-card";
+import AlertCard from "./alert-card";
 
 type Config = { flights: boolean; email: boolean; telegram: boolean };
 type View = "loading" | "gate" | "ready" | "setup";
@@ -64,6 +65,7 @@ export default function AlertsApp() {
   const [saving, setSaving] = useState(false);
   const [quoting, setQuoting] = useState(false);
   const [quote, setQuote] = useState<{ key: string; data: Quote } | null>(null);
+  const [created, setCreated] = useState("");
   const [formKey, setFormKey] = useState(0); // reinicia los buscadores de aeropuerto
 
   const search = {
@@ -158,6 +160,7 @@ export default function AlertsApp() {
     if (missingPlace()) return;
     setSaving(true);
     setFormError("");
+    setCreated("");
     const { res, data } = await api("/api/alerts", {
       method: "POST",
       body: JSON.stringify({
@@ -174,6 +177,11 @@ export default function AlertsApp() {
       return;
     }
     setAlerts((list) => [data.alert, ...list]);
+    setCreated(
+      data.confirmation_sent
+        ? `Alerta creada. Enviamos la confirmación a ${data.alert.email ?? "tu Telegram"}.`
+        : "Alerta creada, pero no se pudo enviar la confirmación.",
+    );
     setOrigin(null);
     setDestination(null);
     setTarget("");
@@ -491,6 +499,11 @@ export default function AlertsApp() {
           {formError && (
             <p className="notice error" style={{ marginTop: "1rem" }}>
               {formError}
+            </p>
+          )}
+          {created && (
+            <p className="notice" role="status" style={{ marginTop: "1rem" }}>
+              {created}
             </p>
           )}
           <button

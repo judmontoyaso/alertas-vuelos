@@ -1,21 +1,10 @@
 "use client";
 
 import { googleFlightsUrl } from "@/lib/flights";
-import { formatPrice, TRIP_LENGTHS, tripDurations, type Alert } from "@/lib/types";
+import { cityOf, describeAlert, formatDate } from "@/lib/format";
+import { formatPrice, tripDurations, type Alert } from "@/lib/types";
 
 const PLANE = "M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z";
-
-export function formatDate(iso: string) {
-  return new Date(`${iso}T12:00:00`).toLocaleDateString("es-CO", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-}
-
-function formatRange(from: string, to: string) {
-  return from === to ? `el ${formatDate(from)}` : `entre el ${formatDate(from)} y el ${formatDate(to)}`;
-}
 
 function formatChecked(iso: string) {
   return new Date(iso).toLocaleString("es-CO", {
@@ -24,26 +13,6 @@ function formatChecked(iso: string) {
     hour: "numeric",
     minute: "2-digit",
   });
-}
-
-export function monthName(month: number) {
-  const name = new Date(2000, month - 1, 1).toLocaleDateString("es-CO", { month: "long" });
-  return name;
-}
-
-const cityOf = (label: string) => label.split(" (")[0];
-
-function describe(alert: Alert) {
-  if (alert.mode === "deal") {
-    const when = alert.month === 0 ? "en los próximos 6 meses" : `en ${monthName(alert.month)}`;
-    return alert.round_trip
-      ? `Cualquier fecha ${when}, viaje de ${TRIP_LENGTHS[alert.trip_length as 1 | 2 | 3].toLowerCase()}`
-      : `Solo ida, cualquier fecha ${when}`;
-  }
-  const out = formatRange(alert.out_from!, alert.out_to!);
-  return alert.round_trip
-    ? `Ida ${out}, regreso ${formatRange(alert.ret_from!, alert.ret_to!)}`
-    : `Solo ida ${out}`;
 }
 
 type Props = {
@@ -87,8 +56,13 @@ export default function AlertCard({ alert, busy, canCheck, onCheck, onToggle, on
             {cityOf(alert.origin_label)} a {cityOf(alert.destination_label)}
           </p>
           <p className="dates">
-            {describe(alert)}
+            {describeAlert(alert)}
             {!alert.active && " (en pausa)"}
+          </p>
+          <p className="dates">
+            Avisa a {[alert.email, alert.telegram_chat_id && `Telegram ${alert.telegram_chat_id}`]
+              .filter(Boolean)
+              .join(" y ")}
           </p>
         </div>
         <div className="prices">

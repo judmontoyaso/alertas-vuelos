@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { labelFor } from "@/lib/airports";
 import { requireAccess } from "@/lib/auth";
 import { getDb, TABLE } from "@/lib/db";
-import { channels } from "@/lib/notify";
+import { channels, sendConfirmation } from "@/lib/notify";
 import { validateSearch } from "@/lib/search";
+import type { Alert } from "@/lib/types";
 
 // Tope para no agotar los creditos de SerpApi: cada alerta activa gasta busquedas a diario.
 const MAX_ACTIVE_ALERTS = 30;
@@ -98,5 +99,6 @@ export async function POST(request: Request) {
     .select()
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ alert: data }, { status: 201 });
+  const confirmation_sent = await sendConfirmation(data as Alert);
+  return NextResponse.json({ alert: data, confirmation_sent }, { status: 201 });
 }

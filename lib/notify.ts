@@ -1,36 +1,12 @@
-import { googleFlightsUrl } from "./flights";
-import { formatPrice, type Alert } from "./types";
+import { confirmationEmail, priceEmail, type Email, type Found } from "./email";
+import type { Alert } from "./types";
 
 export const channels = {
   email: () => Boolean(process.env.RESEND_API_KEY),
   telegram: () => Boolean(process.env.TELEGRAM_BOT_TOKEN),
 };
 
-type Found = { price: number; outbound: string; return: string | null; airline: string | null; threshold: number };
-
-function message(alert: Alert, found: Found) {
-  const price = formatPrice(found.price, alert.currency);
-  const trip = found.return
-    ? `saliendo el ${found.outbound} y regresando el ${found.return}`
-    : `solo ida, saliendo el ${found.outbound}`;
-  const reference =
-    alert.target_price !== null
-      ? `Tu tope era ${formatPrice(found.threshold, alert.currency)}.`
-      : `Está por debajo de lo habitual para esta ruta (${formatPrice(found.threshold, alert.currency)}).`;
-  return {
-    subject: `${alert.origin_label} a ${alert.destination_label} por ${price}`,
-    text: [
-      `${alert.origin_label} a ${alert.destination_label} está en ${price}, ${trip}${
-        found.airline ? ` con ${found.airline}` : ""
-      }.`,
-      reference,
-      "",
-      `Ver en Google Flights: ${googleFlightsUrl(alert.origin, alert.destination, found.outbound, found.return, alert.currency)}`,
-    ].join("\n"),
-  };
-}
-
-async function sendEmail(to: string, subject: string, text: string) {
+async function sendEmail(to: string, email: Email) {
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
@@ -40,8 +16,7 @@ async function sendEmail(to: string, subject: string, text: string) {
     body: JSON.stringify({
       from: process.env.ALERT_FROM_EMAIL ?? "Alertas de vuelos <onboarding@resend.dev>",
       to,
-      subject,
-      text,
+      ...email,
     }),
   });
   if (!res.ok) throw new Error(`Resend respondió ${res.status}: ${await res.text()}`);
@@ -60,16 +35,19 @@ async function sendTelegram(chatId: string, text: string) {
 }
 
 // Envia por cada canal configurado; devuelve true si al menos uno salio.
-export async function sendNotification(alert: Alert, found: Found): Promise<boolean> {
-  const { subject, text } = message(alert, found);
+async function deliver(alert: Alert, email: Email): Promise<boolean> {
   const jobs: Promise<void>[] = [];
-  if (alert.email && channels.email()) jobs.push(sendEmail(alert.email, subject, text));
+  if (alert.email && channels.email()) jobs.push(sendEmail(alert.email, email));
   if (alert.telegram_chat_id && channels.telegram()) {
-    jobs.push(sendTelegram(alert.telegram_chat_id, `${subject}\n\n${text}`));
+    jobs.push(sendTelegram(alert.telegram_chat_id, email.text));
   }
   const results = await Promise.allSettled(jobs);
   for (const r of results) {
-    if (r.status === "rejected") console.error("Error enviando alerta:", r.reason);
+    if (r.status === "rejected") console.error("Error enviando aviso:", r.reason);
   }
   return results.some((r) => r.status === "fulfilled");
 }
+
+export const sendNotification = (alert: Alert, found: Found) => deliver(alert, priceEmail(alert, found));
+
+export const sendConfirmation = (alert: Alert) => deliver(alert, confirmationEmail(alert));
